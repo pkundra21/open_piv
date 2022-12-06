@@ -1,0 +1,79 @@
+import numpy as np
+import os
+from openpiv import piv
+from openpiv import tools, pyprocess, validation, filters, scaling
+import cv2
+from PIL import Image
+import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
+from mpl_toolkits import mplot3d
+from openpiv import preprocess
+
+# PREPROCESSING USING LOCAL VARIANCE NORMALIZATION FUNCTION  
+p=[]
+f='C:/Users/Student/Desktop/OPENPIV/masked_img'
+for file in os.listdir(f):
+    f_img = f+"/"+file
+    frame_a  = tools.imread(f_img)
+    p.append(frame_a)
+
+for i in range (len(p)):
+    Image3= preprocess.local_variance_normalization(p[i].astype(float))
+    filename= "%d.png" %i 
+    plt.imsave('C:/Users/Student/Desktop/OPENPIV/1_VARIANCE/'+filename,Image3)
+
+# PROCESSING USING SIMPLE PIV WHILE OBTAING X,Y U, V
+f='C:/Users/Student/Desktop/OPENPIV/1_VARIANCE/'
+file = os.listdir(f)
+for i in range(2):
+    if i %2==0:
+        frame_a  = tools.imread(f+file[i])
+        frame_b  = tools.imread(f+file[i+1])
+x, y, u, v = piv.simple_piv(frame_a,frame_b,plot = False)       
+
+#Post Processing
+
+winsize = 32 # pixels, interrogation window size in frame A
+searchsize = 38  # pixels, search area size in frame B
+overlap = 17 # pixels, 50% overlap
+dt = 0.02 # sec, time interval between the two frames
+
+u0, v0, sig2noise = pyprocess.extended_search_area_piv(
+    frame_a.astype(np.int32),
+    frame_b.astype(np.int32),
+    window_size=winsize,
+    overlap=overlap,
+    dt=dt,
+    search_area_size=searchsize,
+    sig2noise_method='peak2peak',
+)
+x, y = pyprocess.get_coordinates(
+    image_size=frame_a.shape,
+    search_area_size=searchsize,
+    overlap=overlap,
+)
+u1, v1, mask = validation.sig2noise_val(
+    u0, v0,sig2noise,threshold = 1.05,)
+    
+u2, v2 = filters.replace_outliers(u1, v1,method='localmean',max_iter=3,kernel_size=3,)
+# convert x,y to mm
+# convert u,v to mm/sec
+
+x, y, u3, v3 = scaling.uniform(
+    x, y, u2, v2,scaling_factor = 96.52,  # 96.52 pixels/millimeter)
+    
+# 0,0 shall be bottom left, positive rotation rate is counterclockwise
+x, y, u3, v3 = tools.transform_coordinates(x, y, u3, v3)
+tools.save(x, y, u3, v3, mask, 'exp1_001.txt' )
+
+#RESULTS AND PLOTING
+
+fig, ax = plt.subplots(figsize=(8,8))
+tools.display_vector_field(
+    'exp1_001.txt',
+    ax=ax, scaling_factor=96.52,
+    scale=50, # scale defines here the arrow length
+    width=0.0035, # width is the thickness of the arrow
+    on_img=True, # overlay on the image
+    image_name='C:/Users/Student/Desktop/OPENPIV/1_VARIANCE/0.png',
+);
